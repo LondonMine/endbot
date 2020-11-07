@@ -2,7 +2,8 @@
     "env": {
         "commonjs": true,
         "es2020": true,
-		"node": true
+		"node": true,
+		"jest": true
     },
     "extends": "eslint:recommended",
     "parserOptions": {
@@ -34,5 +35,18 @@
 		"no-global-assign": "off",
 		"eqeqeq": "off",
 		"no-unused-vars": "warn"
-    }
+    },
+	"overrides": [
+		{
+			"files": "*.yml",
+			"rules": {
+			}
+		},
+		{
+			"files": "modules/applications/public/**",
+			"env": {
+				"browser": true
+			}
+		}
+	]
 }

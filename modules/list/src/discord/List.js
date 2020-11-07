@@ -44,9 +44,6 @@ class List extends Command {
 				}
 			}
     };
-    
-    console.log(roles);
-    console.log(role);
 
 		if (role === '' || role === 'everyone') {
 			// selectedRole = roles.everyone;

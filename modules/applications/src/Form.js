@@ -36,10 +36,26 @@ class Form {
 	}
 	
 	async createTicket(row) {
-		let { user, username } = this.findUser(row);
+		let { user, username, discriminator } = this.findUser(row);
 		let ticketChannel = await this.createChannel(user, username);
-		await this.generateEmbed(row, ticketChannel, username);
-		await this.client.db.async_run("INSERT INTO tickets VALUES (?, ?)", { params: [ticketChannel.id, username] });
+		let url = await this.generateEmbed(row, ticketChannel, username);
+
+		await this.client.db.async_run(
+			"INSERT INTO apps VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT count() FROM apps WHERE username = ?), ?, ?)",
+			{ params: [
+				ticketChannel.id,
+				user ? user.user.id : null,
+				username,
+				discriminator,
+				user ? user.user.displayAvatarURL({ format: "png" }) : null,
+				url,
+				Date.now(),
+				"pending",
+				username, // duplicate
+				[],
+				[]
+			]}
+		);
 	}
 	
 	findUser(row) {
@@ -51,10 +67,9 @@ class Form {
 		this.guild.members.cache.forEach(member => {
 			if ((member.nickname == username || member.user.username == username) && member.user.discriminator == discriminator) {
 				user = member;
-				return;
 			}
 		});
-		return { user: user, username: username };
+		return { user: user, username: username, discriminator: discriminator };
 	}
 	
 	async createChannel(user, username) {
@@ -64,7 +79,7 @@ class Form {
 		});
 		if (user) await channel.createOverwrite(user, { "VIEW_CHANNEL": true });
 		else await channel.send(generate("warn").setTitle(`Couldn't find the user ${username}`));
-		await this.client.db.async_run("UPDATE settings SET value = value + 1 WHERE key = \"total_applications\"");
+		await this.client.db.async_run("UPDATE settings SET value = value + 1 WHERE key = 'total_applications'");
 		return channel;
 	}
 	
@@ -73,13 +88,14 @@ class Form {
 		let questions = generate("endtech");
 		row._sheet.headerValues.forEach((question, i) => {
 			if (!row[question] || i == 0) return;
-			if (i < 9) info.addField(question, row[question]);
+			if (i < 9) info.addField(`__${question}__`, row[question]);
 			else questions.addField(`__${question}__`, row[question]);
 		});
 		let pinned = await channel.send(info);
 		await channel.send(questions);
 		await pinned.pin();
-		await this.votingChannel.send(info.setDescription(`Click [here](${pinned.url}) to access the full application`));
+		// await this.votingChannel.send(info.setDescription(`Click [here](${pinned.url}) to access the full application`));
+		return pinned.url;
 	}
 }
 

@@ -1,11 +1,15 @@
-name: Linter
+name: Test
 
 on:
   - push
   - pull_request
 
+env:
+  ENDBOT_CI_TOKEN: ${{ secrets.ENDBOT_CI_TOKEN }}
+  ENDBOT_CI_GUILD: ${{ secrets.ENDBOT_CI_GUILD }}
+
 jobs:
-  lint:
+  test:
     runs-on: ubuntu-latest
 
     strategy:
@@ -19,4 +23,5 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
     - run: npm ci
-    - run: npm run lint
+    - name: Run tests
+      run: npm test

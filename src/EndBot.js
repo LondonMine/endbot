@@ -5,36 +5,31 @@ const Database = require("./misc/Database");
 const Ini = require("ini");
 const fs = require("fs");
 const readdirp = require("readdirp");
+const { error } = require("./misc/embeds");
 
 const Rcon = require("./rcon/Rcon");
 const Bridge = require("./rcon/Bridge");
 
-let config;
-
-try {
-	config = require("../config.json");
-} catch (e) {
-	console.error("Unable to load config");
-	process.exit(1);
-}
-
 class EndBot extends Discord.Client {
-	constructor() {
+	constructor(config) {
 		super();
 		this.flags = {
 			noservers: process.argv.includes("--no-servers"),
 			debug: process.argv.includes("--debug")
 		};
 		this.config = config;
-		this.token = config.token;
-		this.prefix = config.prefix;
+		this.token = this.config.token;
+		this.clientSecret = this.config["client-secret"];
+		this.prefix = this.config.prefix;
 		this.servers = {};
 		this.bridges = new Map();
 		this.rcons = [];
 		this.db = new Database("endbot.db");
 		this.moduleConfig = {};
+		this.discordCommands = {};
+		this.serverCommands = {};
+		this.isMock = false;
 	}
-
 
 	async readCommands(modulePath) {
 		let commands = {};
@@ -72,37 +67,37 @@ class EndBot extends Discord.Client {
 		fs.readdirSync("modules/").forEach(async file => {
 			if (!fs.statSync(`modules/${file}`).isDirectory()) return;
 			let endbotModule = require(`../modules/${file}`);
-			
+
 			this.moduleConfig[endbotModule.package] = moduleConfig[endbotModule.package] || {};
 			for (let field in endbotModule.config) {
 				if (!this.moduleConfig[endbotModule.package][field]) {
 					this.moduleConfig[endbotModule.package][field] = endbotModule.config[field];
 				}
 			}
-			
+
 			let requirements = endbotModule.requirements;
 			if (requirements) {
 				if (!requirements(this)) return;
 			}
-			
+
 			let discord = await this.readCommands(`modules/${file}/${endbotModule.discord}/`);
 			this.discordCommands = { ...this.discordCommands, ...discord };
-			
+
 			let server = await this.readCommands(`modules/${file}/${endbotModule.server}/`);
 			this.serverCommands = { ...this.serverCommands, ...server };
-			
+
 			let setup = endbotModule.setup;
 			if (setup) await setup(this);
 		});
-		
+
 		fs.writeFileSync(moduleConfigPath, "; Module configuration file\n\n" + Ini.stringify(this.moduleConfig));
 	}
 
 	initServers() {
 		// Setup listeners
-		let keys = Object.keys(config.servers);
+		let keys = Object.keys(this.config.servers);
 		for (let i = 0; i < keys.length; i++) {
-			let server = config.servers[keys[i]];
+			let server = this.config.servers[keys[i]];
 			let channel = this.channels.cache.get(server["bridge-channel"]);
 
 			// Setup RCON
@@ -110,12 +105,9 @@ class EndBot extends Discord.Client {
 				host: server.host,
 				port: server["rcon-port"],
 				password: server["rcon-password"],
-				name: server.name
+				name: server.name,
+				channel: channel
 			}, this);
-			rcon.connection.on("auth", () => {
-				this.servers[server.name].sendMessage("Hello World!", { author: "EndBot", color: "dark_purple"});
-				channel.send(`Connected to ${rcon.name}!`);
-			});
 
 			// Setup bridge channels
 			this.bridges.set(channel.id, new Bridge(channel, rcon, server["log-path"], this));
@@ -129,16 +121,20 @@ class EndBot extends Discord.Client {
 	}
 
 	filterDiscord(message) {
-		if (message.author.bot) return;
+		try {
+			if (message.author.bot && !this.isMock) return;
 
-		if (this.bridges.has(message.channel.id)) {
-			this.bridges.get(message.channel.id).toMinecraft(message);
+			if (this.bridges.has(message.channel.id)) {
+				this.bridges.get(message.channel.id).toMinecraft(message);
+			}
+
+			if (message.content.charAt(0) !== this.prefix) return;
+
+			let command = message.content.substring(1).split(" ");
+			return this.parseDiscordCommand(message, command[0], command.slice(1));
+		} catch (e) {
+			message.channel.send(error("unexpected").setDescription(e));
 		}
-
-		if (message.content.charAt(0) !== this.prefix) return;
-
-		let command = message.content.substring(1).split(" ");
-		this.parseDiscordCommand(message, command[0], command.slice(1));
 	}
 
 	filterServer(rcon, message) {
@@ -154,7 +150,7 @@ class EndBot extends Discord.Client {
 		let cmd = this.discordCommands[command];
 		if (cmd === undefined) return;
 		if (this.flags.debug) console.log(message.content, "was ran by", message.author.username);
-		cmd.run(message, ...args);
+		return cmd.run(message, ...args);
 	}
 
 	parseServerCommand(rcon, authorName, command, ...args) {
